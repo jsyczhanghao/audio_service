@@ -97,6 +97,9 @@ static MPMediaItemArtwork* artwork = nil;
     // Initialise AVAudioSession
     [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:nil];
     [[AVAudioSession sharedInstance] setActive: YES error: nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(audioInterruption:) name:AVAudioSessionInterruptionNotification object:[AVAudioSession sharedInstance]];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(handleRouteChange:) name:AVAudioSessionRouteChangeNotification object:[AVAudioSession sharedInstance]];
+
     // Set callbacks on MPRemoteCommandCenter
     commandCenter = [MPRemoteCommandCenter sharedCommandCenter];
     [commandCenter.togglePlayPauseCommand setEnabled:YES];
@@ -254,9 +257,10 @@ static MPMediaItemArtwork* artwork = nil;
     mediaItem = call.arguments;
     NSString* artUri = mediaItem[@"artUri"];
     if (artUri != [NSNull null]) {
-      NSURL* artUrl = [[NSURL alloc] initWithString:artUri];
-      NSData* artData = [NSData dataWithContentsOfURL:artUrl];
-      UIImage* artImage = [UIImage imageWithData:artData];
+      // NSURL* artUrl = [[NSURL alloc] initWithString:artUri];
+      // NSData* artData = [NSData dataWithContentsOfURL:artUrl];
+      //UIImage* artImage = [UIImage imageWithData:artData];
+      UIImage *artImage = [UIImage imageWithContentsOfFile:artUri];
       artwork = [[MPMediaItemArtwork alloc]
         initWithBoundsSize:artImage.size
             requestHandler:^UIImage* _Nonnull(CGSize size){
@@ -339,4 +343,31 @@ static MPMediaItemArtwork* artwork = nil;
   return MPRemoteCommandHandlerStatusSuccess;
 }
 
+//处理下语音被软件打断
+- (void)audioInterruption:(NSNotification *)noti {
+    NSDictionary *info = noti.userInfo;
+    AVAudioSessionInterruptionType type = [info[AVAudioSessionInterruptionTypeKey] unsignedIntegerValue];
+    
+    if (type == AVAudioSessionInterruptionTypeBegan) {
+        [self pause:nil];
+    } else {
+        AVAudioSessionInterruptionOptions options = [info[AVAudioSessionInterruptionOptionKey] unsignedIntegerValue];
+        if (options == AVAudioSessionInterruptionOptionShouldResume) {
+            [self play:nil];
+        }
+    }
+}
+
+- (void)handleRouteChange:(NSNotification *)noti {
+    NSDictionary *dic = noti.userInfo;
+       int changeReason= [dic[AVAudioSessionRouteChangeReasonKey] intValue];
+       //等于AVAudioSessionRouteChangeReasonOldDeviceUnavailable表示旧输出不可用
+       if (changeReason==AVAudioSessionRouteChangeReasonOldDeviceUnavailable) {
+           AVAudioSessionRouteDescription *routeDescription = dic[AVAudioSessionRouteChangePreviousRouteKey];
+           AVAudioSessionPortDescription *portDescription = [routeDescription.outputs firstObject];
+           if ([portDescription.portType isEqualToString:AVAudioSessionPortHeadphones] || [portDescription.portType isEqualToString:AVAudioSessionPortBluetoothA2DP]) {
+               [self pause:nil];
+           }
+       }
+}
 @end
